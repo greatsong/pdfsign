@@ -6,7 +6,8 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
 import tempfile
 import os
-from streamlit_image_coordinates import streamlit_image_coordinates
+from streamlit_drawable_canvas import st_canvas
+import numpy as np
 
 # 페이지 설정
 st.set_page_config(
@@ -218,57 +219,90 @@ if pdf_file:
                         sig_size
                     )
                 
-                # 클릭 가능한 이미지 표시
-                clicked_coords = streamlit_image_coordinates(
-                    source=display_image,
-                    key=f"image_page_{current_page}",
-                    width=None,  # 원본 크기 유지
+                # 이미지 크기 계산 (화면에 맞게 조정)
+                max_width = 600
+                scale_factor = min(max_width / current_image.width, 1.0)
+                canvas_width = int(current_image.width * scale_factor)
+                canvas_height = int(current_image.height * scale_factor)
+                
+                st.write(f"📏 **이미지 크기**: {current_image.width} × {current_image.height} 픽셀")
+                st.write("👆 **이미지를 클릭하세요!**")
+                
+                # drawable canvas로 클릭 위치 받기
+                canvas_result = st_canvas(
+                    fill_color="rgba(255, 165, 0, 0.3)",  # 클릭 지점 표시색
+                    stroke_width=0,
+                    stroke_color="#000000",
+                    background_image=display_image,
+                    update_streamlit=True,
+                    width=canvas_width,
+                    height=canvas_height,
+                    drawing_mode="point",
+                    point_display_radius=10,
+                    key=f"canvas_page_{current_page}",
                 )
                 
-                # 이미지 크기 정보 표시
-                st.caption(f"이미지 크기: {current_image.width} × {current_image.height} 픽셀")
-                
                 # 클릭 좌표 처리
-                if clicked_coords is not None:
-                    x_pos = clicked_coords["x"]
-                    y_pos = clicked_coords["y"]
-                    
-                    # 서명 크기를 고려한 위치 조정 (서명이 이미지 경계를 벗어나지 않도록)
-                    sig_width = st.session_state.get('sig_width', 150)
-                    sig_height = st.session_state.get('sig_height', 75)
-                    
-                    x_pos = min(x_pos, current_image.width - sig_width)
-                    y_pos = min(y_pos, current_image.height - sig_height)
-                    x_pos = max(0, x_pos)
-                    y_pos = max(0, y_pos)
-                    
-                    st.success(f"📍 클릭한 위치: ({x_pos}, {y_pos})")
-                    
-                    # 실시간 미리보기
-                    with st.expander("🔍 서명 미리보기", expanded=True):
-                        sig_size = (sig_width, sig_height)
-                        preview_img = add_signature_to_image(
-                            current_image,
-                            st.session_state.signature_image,
-                            (x_pos, y_pos),
-                            sig_size
-                        )
-                        st.image(preview_img, caption="서명 미리보기", use_container_width=True)
-                    
-                    # 서명 추가 버튼
-                    col_add, col_cancel = st.columns(2)
-                    with col_add:
-                        if st.button(f"✅ 이 위치에 서명 추가", key=f"confirm_add_{current_page}"):
-                            st.session_state.signature_positions[current_page] = (x_pos, y_pos)
-                            st.success(f"페이지 {current_page + 1}에 서명이 추가되었습니다!")
-                            st.rerun()
-                    
-                    with col_cancel:
-                        if st.button("❌ 취소", key=f"cancel_add_{current_page}"):
-                            st.rerun()
+                if canvas_result.json_data is not None:
+                    objects = canvas_result.json_data["objects"]
+                    if len(objects) > 0:
+                        # 마지막 클릭 지점 가져오기
+                        last_point = objects[-1]
+                        
+                        # 캔버스 좌표를 실제 이미지 좌표로 변환
+                        canvas_x = last_point["left"]
+                        canvas_y = last_point["top"]
+                        
+                        # 스케일 팩터를 고려한 실제 좌표 계산
+                        actual_x = int(canvas_x / scale_factor)
+                        actual_y = int(canvas_y / scale_factor)
+                        
+                        # 서명 크기를 고려한 위치 조정 (서명이 이미지 경계를 벗어나지 않도록)
+                        sig_width = st.session_state.get('sig_width', 150)
+                        sig_height = st.session_state.get('sig_height', 75)
+                        
+                        actual_x = min(actual_x, current_image.width - sig_width)
+                        actual_y = min(actual_y, current_image.height - sig_height)
+                        actual_x = max(0, actual_x)
+                        actual_y = max(0, actual_y)
+                        
+                        st.success(f"📍 **선택된 위치**: ({actual_x}, {actual_y})")
+                        
+                        # 실시간 미리보기
+                        with st.container():
+                            st.write("🔍 **서명 미리보기**")
+                            sig_size = (sig_width, sig_height)
+                            preview_img = add_signature_to_image(
+                                current_image,
+                                st.session_state.signature_image,
+                                (actual_x, actual_y),
+                                sig_size
+                            )
+                            # 미리보기도 같은 크기로 표시
+                            st.image(preview_img, width=canvas_width)
+                        
+                        # 서명 추가/취소 버튼
+                        col_add, col_clear = st.columns(2)
+                        with col_add:
+                            if st.button(f"✅ 이 위치에 서명 추가", key=f"confirm_add_{current_page}"):
+                                st.session_state.signature_positions[current_page] = (actual_x, actual_y)
+                                st.success(f"✅ 페이지 {current_page + 1}에 서명이 추가되었습니다!")
+                                st.rerun()
+                        
+                        with col_clear:
+                            if st.button("🔄 클릭 지점 초기화", key=f"clear_canvas_{current_page}"):
+                                st.rerun()
                 
-                # 수동 좌표 입력 옵션
-                with st.expander("⌨️ 수동 좌표 입력 (선택사항)"):
+                # 서명 제거 버튼
+                if current_page in st.session_state.signature_positions:
+                    st.markdown("---")
+                    if st.button(f"🗑️ 페이지 {current_page + 1} 서명 제거", key=f"remove_{current_page}"):
+                        del st.session_state.signature_positions[current_page]
+                        st.success(f"🗑️ 페이지 {current_page + 1}의 서명이 제거되었습니다!")
+                        st.rerun()
+                
+                # 수동 좌표 입력 옵션 (접힌 상태로)
+                with st.expander("⌨️ 수동 좌표 입력 (정확한 좌표가 필요한 경우)"):
                     manual_col1, manual_col2 = st.columns(2)
                     with manual_col1:
                         max_x = max(0, current_image.width - st.session_state.get('sig_width', 150))
@@ -291,14 +325,7 @@ if pdf_file:
                     
                     if st.button(f"📝 수동 좌표로 서명 추가", key=f"manual_add_{current_page}"):
                         st.session_state.signature_positions[current_page] = (manual_x, manual_y)
-                        st.success(f"페이지 {current_page + 1}에 서명이 추가되었습니다!")
-                        st.rerun()
-                
-                # 서명 제거 버튼
-                if current_page in st.session_state.signature_positions:
-                    if st.button(f"🗑️ 페이지 {current_page + 1} 서명 제거", key=f"remove_{current_page}"):
-                        del st.session_state.signature_positions[current_page]
-                        st.success(f"페이지 {current_page + 1}의 서명이 제거되었습니다!")
+                        st.success(f"✅ 페이지 {current_page + 1}에 서명이 추가되었습니다!")
                         st.rerun()
         
         # 서명된 페이지 목록
@@ -387,9 +414,11 @@ else:
     - **크기 조정**: 사이드바에서 서명 크기를 문서에 맞게 조정하세요
     
     ### ⚡ 새로운 기능
-    - **🖱️ 마우스 클릭**: 직관적인 위치 선택
-    - **실시간 미리보기**: 클릭 즉시 결과 확인
+    - **🖱️ 마우스 클릭**: 이미지 위를 직접 클릭하여 서명 위치 선택
+    - **🎯 클릭 지점 표시**: 주황색 원으로 클릭한 위치가 표시됩니다
+    - **실시간 미리보기**: 클릭 즉시 서명이 적용된 결과 확인
     - **자동 경계 조정**: 서명이 이미지 밖으로 나가지 않도록 자동 조정
+    - **스마트 스케일링**: 화면 크기에 맞게 이미지 크기 자동 조정
     - **빠른 변환**: PyMuPDF 사용으로 더 빠르고 안정적인 PDF 처리
     - **고해상도**: 더 선명한 이미지 변환
     """)
@@ -404,7 +433,7 @@ with st.expander("📋 설치 가이드"):
     pip install pillow
     pip install PyMuPDF
     pip install reportlab
-    pip install streamlit-image-coordinates
+    pip install streamlit-drawable-canvas
     ```
     
     **또는 requirements.txt 사용:**
