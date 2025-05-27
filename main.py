@@ -217,7 +217,7 @@ if pdf_file:
                         sig_size
                     )
                 
-                st.image(display_image, use_column_width=True)
+                st.image(display_image, use_container_width=True)
                 
                 # 이미지 크기 정보 표시
                 st.caption(f"이미지 크기: {current_image.width} × {current_image.height} 픽셀")
@@ -270,7 +270,7 @@ if pdf_file:
                             (x_pos, y_pos),
                             sig_size
                         )
-                        st.image(preview_img, caption="서명 미리보기", use_column_width=True)
+                        st.image(preview_img, caption="서명 미리보기", use_container_width=True)
         
         # 서명된 페이지 목록
         if st.session_state.signature_positions:
