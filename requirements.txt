@@ -2,3 +2,4 @@ pillow
 reportlab
 PyMuPDF
 streamlit_image_coordinates
+streamlit-drawable-canvas
