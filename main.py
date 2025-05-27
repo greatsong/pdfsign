@@ -6,8 +6,6 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
 import tempfile
 import os
-import plotly.graph_objects as go
-import plotly.express as px
 
 # 페이지 설정
 st.set_page_config(
@@ -200,176 +198,142 @@ if pdf_file:
         st.subheader(f"📄 페이지 {current_page + 1}")
         
         if st.session_state.signature_image:
-            st.info("💡 이미지를 클릭하여 서명을 추가할 위치를 선택하세요")
+            st.info("🎯 아래 슬라이더를 조정하여 서명 위치를 선택하세요")
             
-            # 이미지 표시 및 클릭 위치 받기
+            # 이미지 표시 및 위치 선택
             col1, col2, col3 = st.columns([1, 3, 1])
             with col2:
-                # 현재 페이지에 이미 서명이 있다면 보여주기
-                display_image = current_image
-                if current_page in st.session_state.signature_positions:
-                    sig_size = (
-                        st.session_state.get('sig_width', 150),
-                        st.session_state.get('sig_height', 75)
-                    )
-                    display_image = add_signature_to_image(
-                        current_image,
-                        st.session_state.signature_image,
-                        st.session_state.signature_positions[current_page],
-                        sig_size
-                    )
+                # 서명 크기 가져오기
+                sig_width = st.session_state.get('sig_width', 150)
+                sig_height = st.session_state.get('sig_height', 75)
+                
+                # 최대 좌표 계산
+                max_x = max(0, current_image.width - sig_width)
+                max_y = max(0, current_image.height - sig_height)
                 
                 st.write("📏 **이미지 크기**: {} × {} 픽셀".format(current_image.width, current_image.height))
-                st.write("👆 **아래 이미지를 클릭하세요!**")
+                st.write("🎯 **슬라이더로 서명 위치를 조정하세요**")
                 
-                # Plotly를 사용한 클릭 가능한 이미지
-                fig = go.Figure()
-                
-                # 이미지 추가
-                fig.add_layout_image(
-                    dict(
-                        source=display_image,
-                        xref="x",
-                        yref="y",
-                        x=0,
-                        y=current_image.height,
-                        sizex=current_image.width,
-                        sizey=current_image.height,
-                        sizing="stretch",
-                        opacity=1,
-                        layer="below"
-                    )
-                )
-                
-                # 축 설정
-                fig.update_xaxes(
-                    showgrid=False,
-                    zeroline=False,
-                    range=[0, current_image.width],
-                    showticklabels=True
-                )
-                fig.update_yaxes(
-                    showgrid=False,
-                    zeroline=False,
-                    range=[0, current_image.height],
-                    showticklabels=True,
-                    scaleanchor="x",
-                    scaleratio=1
-                )
-                
-                # 레이아웃 설정
-                fig.update_layout(
-                    title="서명 위치를 클릭하세요",
-                    xaxis_title="X 좌표",
-                    yaxis_title="Y 좌표",
-                    width=min(800, current_image.width + 100),
-                    height=min(600, current_image.height + 100),
-                    margin=dict(l=50, r=50, t=50, b=50)
-                )
-                
-                # Streamlit에서 plotly 차트 표시 및 클릭 이벤트 받기
-                clicked_data = st.plotly_chart(
-                    fig, 
-                    use_container_width=True,
-                    on_select="rerun",
-                    selection_mode="points",
-                    key=f"plotly_page_{current_page}"
-                )
-                
-                # 클릭 좌표 처리
-                if clicked_data and clicked_data['selection']['points']:
-                    point = clicked_data['selection']['points'][0]
-                    clicked_x = int(point['x'])
-                    clicked_y = int(current_image.height - point['y'])  # Y축 뒤집기
-                    
-                    # 서명 크기를 고려한 위치 조정
-                    sig_width = st.session_state.get('sig_width', 150)
-                    sig_height = st.session_state.get('sig_height', 75)
-                    
-                    actual_x = min(clicked_x, current_image.width - sig_width)
-                    actual_y = min(clicked_y, current_image.height - sig_height)
-                    actual_x = max(0, actual_x)
-                    actual_y = max(0, actual_y)
-                    
-                    st.success(f"📍 **선택된 위치**: ({actual_x}, {actual_y})")
-                    
-                    # 실시간 미리보기
-                    with st.container():
-                        st.write("🔍 **서명 미리보기**")
-                        sig_size = (sig_width, sig_height)
-                        preview_img = add_signature_to_image(
-                            current_image,
-                            st.session_state.signature_image,
-                            (actual_x, actual_y),
-                            sig_size
-                        )
-                        st.image(preview_img, caption="서명이 추가된 미리보기")
-                    
-                    # 서명 추가 버튼
-                    col_add, col_clear = st.columns(2)
-                    with col_add:
-                        if st.button(f"✅ 이 위치에 서명 추가", key=f"confirm_add_{current_page}"):
-                            st.session_state.signature_positions[current_page] = (actual_x, actual_y)
-                            st.success(f"✅ 페이지 {current_page + 1}에 서명이 추가되었습니다!")
-                            st.rerun()
-                    
-                    with col_clear:
-                        if st.button("🔄 선택 초기화", key=f"clear_selection_{current_page}"):
-                            st.rerun()
-                
-                # 서명 제거 버튼
+                # 현재 저장된 위치가 있다면 기본값으로 사용
                 if current_page in st.session_state.signature_positions:
-                    st.markdown("---")
-                    current_pos = st.session_state.signature_positions[current_page]
-                    st.info(f"📌 현재 서명 위치: ({current_pos[0]}, {current_pos[1]})")
+                    saved_pos = st.session_state.signature_positions[current_page]
+                    default_x = min(saved_pos[0], max_x)
+                    default_y = min(saved_pos[1], max_y)
+                else:
+                    default_x = min(50, max_x)
+                    default_y = min(50, max_y)
+                
+                # X, Y 좌표 슬라이더
+                x_pos = st.slider(
+                    "🔄 X 좌표 (가로 위치)",
+                    min_value=0,
+                    max_value=max_x,
+                    value=default_x,
+                    step=5,
+                    key=f"x_slider_{current_page}"
+                )
+                
+                y_pos = st.slider(
+                    "🔄 Y 좌표 (세로 위치)",
+                    min_value=0,
+                    max_value=max_y,
+                    value=default_y,
+                    step=5,
+                    key=f"y_slider_{current_page}"
+                )
+                
+                # 정확한 좌표 입력 (선택사항)
+                with st.expander("⌨️ 정확한 좌표 입력"):
+                    col_precise_x, col_precise_y = st.columns(2)
+                    with col_precise_x:
+                        precise_x = st.number_input(
+                            "정확한 X 좌표",
+                            min_value=0,
+                            max_value=max_x,
+                            value=x_pos,
+                            key=f"precise_x_{current_page}"
+                        )
+                    with col_precise_y:
+                        precise_y = st.number_input(
+                            "정확한 Y 좌표",
+                            min_value=0,
+                            max_value=max_y,
+                            value=y_pos,
+                            key=f"precise_y_{current_page}"
+                        )
                     
-                    if st.button(f"🗑️ 페이지 {current_page + 1} 서명 제거", key=f"remove_{current_page}"):
-                        del st.session_state.signature_positions[current_page]
-                        st.success(f"🗑️ 페이지 {current_page + 1}의 서명이 제거되었습니다!")
+                    if st.button("📍 정확한 좌표 적용", key=f"apply_precise_{current_page}"):
+                        # 세션 상태 업데이트 (슬라이더 값을 강제로 변경하기 위해)
+                        st.session_state[f"x_slider_{current_page}"] = precise_x
+                        st.session_state[f"y_slider_{current_page}"] = precise_y
+                        x_pos = precise_x
+                        y_pos = precise_y
                         st.rerun()
                 
-                # 수동 좌표 입력 옵션 (접힌 상태로)
-                with st.expander("⌨️ 수동 좌표 입력 (정확한 좌표가 필요한 경우)"):
-                    manual_col1, manual_col2 = st.columns(2)
-                    with manual_col1:
-                        max_x = max(0, current_image.width - st.session_state.get('sig_width', 150))
-                        manual_x = st.number_input(
-                            "X 좌표 (가로)", 
-                            min_value=0, 
-                            max_value=max_x,
-                            value=min(50, max_x),
-                            key=f"manual_x_pos_{current_page}"
-                        )
-                    with manual_col2:
-                        max_y = max(0, current_image.height - st.session_state.get('sig_height', 75))
-                        manual_y = st.number_input(
-                            "Y 좌표 (세로)", 
-                            min_value=0, 
-                            max_value=max_y,
-                            value=min(50, max_y),
-                            key=f"manual_y_pos_{current_page}"
-                        )
-                    
-                    col_manual_add, col_manual_preview = st.columns(2)
-                    with col_manual_add:
-                        if st.button(f"📝 수동 좌표로 서명 추가", key=f"manual_add_{current_page}"):
-                            st.session_state.signature_positions[current_page] = (manual_x, manual_y)
-                            st.success(f"✅ 페이지 {current_page + 1}에 서명이 추가되었습니다!")
+                # 실시간 미리보기 생성
+                preview_img = add_signature_to_image(
+                    current_image,
+                    st.session_state.signature_image,
+                    (x_pos, y_pos),
+                    (sig_width, sig_height)
+                )
+                
+                # 현재 위치 표시
+                st.success(f"📍 **현재 선택된 위치**: ({x_pos}, {y_pos})")
+                
+                # 미리보기 이미지 표시
+                st.write("🔍 **실시간 미리보기**")
+                st.image(preview_img, caption="서명이 추가된 미리보기", use_container_width=True)
+                
+                # 서명 추가/제거 버튼
+                col_add, col_remove = st.columns(2)
+                
+                with col_add:
+                    if st.button(f"✅ 페이지 {current_page + 1}에 서명 추가", key=f"add_signature_{current_page}"):
+                        st.session_state.signature_positions[current_page] = (x_pos, y_pos)
+                        st.success(f"✅ 페이지 {current_page + 1}에 서명이 추가되었습니다!")
+                        st.balloons()  # 성공 효과
+                        st.rerun()
+                
+                with col_remove:
+                    if current_page in st.session_state.signature_positions:
+                        if st.button(f"🗑️ 서명 제거", key=f"remove_signature_{current_page}"):
+                            del st.session_state.signature_positions[current_page]
+                            st.success(f"🗑️ 페이지 {current_page + 1}의 서명이 제거되었습니다!")
                             st.rerun()
-                    
-                    with col_manual_preview:
-                        if st.button(f"👁️ 수동 좌표 미리보기", key=f"manual_preview_{current_page}"):
-                            sig_size = (
-                                st.session_state.get('sig_width', 150),
-                                st.session_state.get('sig_height', 75)
-                            )
-                            preview_img = add_signature_to_image(
-                                current_image,
-                                st.session_state.signature_image,
-                                (manual_x, manual_y),
-                                sig_size
-                            )
-                            st.image(preview_img, caption="수동 좌표 미리보기")
+                
+                # 현재 저장된 서명 위치 표시
+                if current_page in st.session_state.signature_positions:
+                    saved_pos = st.session_state.signature_positions[current_page]
+                    st.info(f"💾 **저장된 서명 위치**: ({saved_pos[0]}, {saved_pos[1]})")
+                
+                # 빠른 위치 선택 버튼들
+                st.write("⚡ **빠른 위치 선택**")
+                quick_col1, quick_col2, quick_col3, quick_col4 = st.columns(4)
+                
+                with quick_col1:
+                    if st.button("↖️ 왼쪽 상단", key=f"top_left_{current_page}"):
+                        st.session_state[f"x_slider_{current_page}"] = 10
+                        st.session_state[f"y_slider_{current_page}"] = 10
+                        st.rerun()
+                
+                with quick_col2:
+                    if st.button("↗️ 오른쪽 상단", key=f"top_right_{current_page}"):
+                        st.session_state[f"x_slider_{current_page}"] = max(0, max_x - 10)
+                        st.session_state[f"y_slider_{current_page}"] = 10
+                        st.rerun()
+                
+                with quick_col3:
+                    if st.button("↙️ 왼쪽 하단", key=f"bottom_left_{current_page}"):
+                        st.session_state[f"x_slider_{current_page}"] = 10
+                        st.session_state[f"y_slider_{current_page}"] = max(0, max_y - 10)
+                        st.rerun()
+                
+                with quick_col4:
+                    if st.button("↘️ 오른쪽 하단", key=f"bottom_right_{current_page}"):
+                        st.session_state[f"x_slider_{current_page}"] = max(0, max_x - 10)
+                        st.session_state[f"y_slider_{current_page}"] = max(0, max_y - 10)
+                        st.rerun()
         
         # 서명된 페이지 목록
         if st.session_state.signature_positions:
